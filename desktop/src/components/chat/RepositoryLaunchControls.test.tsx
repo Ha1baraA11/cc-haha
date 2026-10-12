@@ -354,6 +354,33 @@ describe('RepositoryLaunchControls', () => {
     })
   })
 
+  it('refreshes repository context when opening the branch list', async () => {
+    const contextWithExternalBranch = {
+      ...okRepositoryContext,
+      branches: [
+        ...okRepositoryContext.branches,
+        {
+          name: 'feature/external',
+          current: false,
+          local: true,
+          remote: false,
+          checkedOut: false,
+          remoteRef: null,
+          worktreePath: null,
+          commit: OTHER_COMMIT,
+        },
+      ],
+    }
+    renderControls()
+    await openPill()
+    apiMocks.getRepositoryContext.mockResolvedValueOnce(contextWithExternalBranch)
+
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Branch/ }))
+
+    expect(await screen.findByRole('option', { name: /feature\/external/ })).toBeInTheDocument()
+    expect(apiMocks.getRepositoryContext).toHaveBeenCalledTimes(2)
+  })
+
   it('drills into the branch list and back out again', async () => {
     renderControls()
     await openBranchView()
@@ -617,12 +644,15 @@ describe('RepositoryLaunchControls', () => {
       // menu. The returned list is adopted without a second request.
       const pill = await screen.findByRole('button', { name: 'Location: cc-haha / feature/new' })
       expect(screen.queryByRole('menu', { name: 'Location' })).not.toBeInTheDocument()
-      expect(apiMocks.getRepositoryContext).toHaveBeenCalledTimes(1)
+      // Initial load plus the refresh triggered by entering the branch list;
+      // branch creation adopts its returned context without another read.
+      expect(apiMocks.getRepositoryContext).toHaveBeenCalledTimes(2)
       expect(uiMocks.addToast).toHaveBeenCalledWith({
         type: 'success',
         message: 'Created and selected “feature/new”. It will be checked out when the session starts.',
       })
 
+      apiMocks.getRepositoryContext.mockResolvedValue(contextWithCreatedBranch)
       fireEvent.click(pill)
       fireEvent.click(await screen.findByRole('menuitem', { name: /Branch/ }))
       const listbox = await screen.findByRole('listbox', { name: 'Select branch' })

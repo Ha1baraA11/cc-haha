@@ -137,6 +137,7 @@ export function RepositoryLaunchControls({
   const isToolbar = placement === 'toolbar' && !isMobileBrowser
   const [context, setContext] = useState<RepositoryContextResult | null>(null)
   const [contextSourceWorkDir, setContextSourceWorkDir] = useState<string | null>(null)
+  const [contextRefreshVersion, setContextRefreshVersion] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -232,7 +233,7 @@ export function RepositoryLaunchControls({
     return () => {
       cancelled = true
     }
-  }, [workDir, onBranchChange])
+  }, [workDir, onBranchChange, contextRefreshVersion])
 
   useEffect(() => {
     createdBranchTransitionRef.current = null
@@ -766,7 +767,10 @@ export function RepositoryLaunchControls({
         <button
           type="button"
           role="menuitem"
-          onClick={() => setView('branch')}
+          onClick={() => {
+            setContextRefreshVersion((version) => version + 1)
+            setView('branch')
+          }}
           className={rowClassName}
         >
           <GitBranch size={16} strokeWidth={1.75} aria-hidden="true" className="shrink-0 text-[var(--color-text-tertiary)]" />
