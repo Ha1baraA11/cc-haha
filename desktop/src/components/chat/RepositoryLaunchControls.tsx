@@ -137,7 +137,6 @@ export function RepositoryLaunchControls({
   const isToolbar = placement === 'toolbar' && !isMobileBrowser
   const [context, setContext] = useState<RepositoryContextResult | null>(null)
   const [contextSourceWorkDir, setContextSourceWorkDir] = useState<string | null>(null)
-  const [contextRefreshVersion, setContextRefreshVersion] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -164,6 +163,12 @@ export function RepositoryLaunchControls({
   /** Read after an await to tell whether the directory moved on under us. */
   const latestWorkDirRef = useRef(workDir)
   latestWorkDirRef.current = workDir
+  /**
+   * Orders every write to `context`. Opening the branch list re-reads the
+   * repository in the background; a slower read must not land on top of a
+   * newer one, a directory change, or a branch the user just created.
+   */
+  const contextRequestRef = useRef(0)
   /**
    * Creating a branch updates this component's context and the parent-owned
    * launch target together. An external store can publish the target first,
@@ -211,6 +216,7 @@ export function RepositoryLaunchControls({
 
     const requestedWorkDir = workDir
     let cancelled = false
+    contextRequestRef.current += 1
     setContextSourceWorkDir(null)
     setLoading(true)
     setError(null)
@@ -233,7 +239,31 @@ export function RepositoryLaunchControls({
     return () => {
       cancelled = true
     }
-  }, [workDir, onBranchChange, contextRefreshVersion])
+  }, [workDir, onBranchChange])
+
+  /**
+   * Re-reads the repository so branches created outside the app show up (#1533).
+   * Unlike the load above this is silent: the list already on screen stays put
+   * while it runs and if it fails, so a flaky read cannot blank a working
+   * picker or hold up sending.
+   */
+  const refreshContext = useCallback(() => {
+    if (!workDir) return
+    const requestedWorkDir = workDir
+    const request = ++contextRequestRef.current
+    sessionsApi.getRepositoryContext(requestedWorkDir)
+      .then((result) => {
+        if (request !== contextRequestRef.current) return
+        if (latestWorkDirRef.current !== requestedWorkDir) return
+        // A failed read reports itself as `state: 'error'` and would clear the
+        // selected branch; the list we already have is the better answer.
+        if (result.state === 'error') return
+        setContext(result)
+        setContextSourceWorkDir(requestedWorkDir)
+        setError(null)
+      })
+      .catch(() => {})
+  }, [workDir])
 
   useEffect(() => {
     createdBranchTransitionRef.current = null
@@ -392,6 +422,9 @@ export function RepositoryLaunchControls({
       // repo's branch list and selection under another repo's path — the same
       // reason the `workDir` effect carries a `cancelled` flag.
       if (latestWorkDirRef.current !== requestWorkDir) return
+      // Drop any background refresh still in flight: it read the repository
+      // before this branch existed and would take it out of the list again.
+      contextRequestRef.current += 1
       // The response carries the context the branch was created against, so the
       // list is correct without a second round trip.
       createdBranchTransitionRef.current = {
@@ -768,7 +801,7 @@ export function RepositoryLaunchControls({
           type="button"
           role="menuitem"
           onClick={() => {
-            setContextRefreshVersion((version) => version + 1)
+            refreshContext()
             setView('branch')
           }}
           className={rowClassName}
